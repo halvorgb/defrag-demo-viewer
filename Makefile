@@ -1136,8 +1136,8 @@ ifeq ($(PLATFORM),emscripten)
   BUILD_GAME_SO=0
   BUILD_GAME_QVM=0
 
-  USE_HUMBLENET=1
-  BUILD_SERVER=1
+  USE_HUMBLENET=0
+  BUILD_SERVER=0
 
   CLIENT_EXTRA_FILES+=code/web/index.html code/web/GamepadEmulator.js code/web/compression-streams-polyfill.0.1.7.js
 
