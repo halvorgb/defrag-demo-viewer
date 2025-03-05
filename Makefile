@@ -1064,6 +1064,52 @@ ifeq ($(PLATFORM),sunos)
 else # ifeq sunos
 
 #############################################################################
+# DEFRAG DEMO VIEWER
+#############################################################################
+
+defragdemo:
+	@echo "Building Defrag Demo Viewer..."
+	@$(MAKE) targets B=$(BR) BUILD_RENDERER_OPENGL2=1 EMSCRIPTEN_PRELOAD_FILE=0 \
+	  CFLAGS="$(CFLAGS) $(BASE_CFLAGS) $(DEPEND_CFLAGS)" \
+	  OPTIMIZE="-DNDEBUG $(OPTIMIZE)" OPTIMIZEVM="-DNDEBUG $(OPTIMIZEVM)" \
+	  CLIENT_CFLAGS="$(CLIENT_CFLAGS)" SERVER_CFLAGS="$(SERVER_CFLAGS)" V=$(V)
+	@$(MAKE) _defragdemo B=$(BR) V=$(V)
+
+_defragdemo:
+	@echo "Setting up Defrag Demo Viewer environment..."
+	@echo "Current directory: `pwd`"
+	@echo "Build directory value: $(B)"
+
+	# Create necessary directories
+	@mkdir -p ./defrag
+	@mkdir -p ./code/web/defrag
+	@mkdir -p $(B)
+
+	# Create the config file for Defrag
+	@echo '{ "files": [ {"src": "defrag/pak0.pk3", "dst": "/defrag"}, {"src": "defrag/pak1.pk3", "dst": "/defrag"}, {"src": "defrag/zz-defrag.pk3", "dst": "/defrag"} ] }' > ./code/web/defrag/ioq3-config.json
+
+	# Copy the demo viewer HTML file to the build directory
+	@cp ./code/web/defrag-demo-viewer.html $(B)/defrag-demo-viewer.html || echo "Failed to copy HTML file"
+
+	# Copy necessary web files
+	@cp ./code/web/GamepadEmulator.js $(B)/GamepadEmulator.js || echo "Failed to copy GamepadEmulator.js"
+	@cp ./code/web/compression-streams-polyfill.0.1.7.js $(B)/compression-streams-polyfill.0.1.7.js || echo "Failed to copy compression-streams-polyfill.js"
+
+	# Copy the game files to the build directory
+	@cp -r ./defrag/ $(B)/defrag
+	@cp -r ./baseq3/ $(B)/baseq3
+
+	# If built with Emscripten, make a copy with the appropriate name if needed
+ifeq ($(PLATFORM),emscripten)
+	@if [ -f $(B)/ioquake3_opengl2.wasm ]; then \
+		cp $(B)/ioquake3_opengl2.wasm $(B)/ioquake3_opengl2.wasm32.wasm; \
+	fi
+endif
+
+	@echo "Defrag Demo Viewer built. You can find the files in $(B)/"
+	@echo "Run a web server in the $(B) directory and open defrag-demo-viewer.html"
+
+#############################################################################
 # SETUP AND BUILD -- emscripten
 #############################################################################
 
@@ -1081,7 +1127,7 @@ ifeq ($(PLATFORM),emscripten)
   endif
   ARCH=wasm32
   BINEXT=.js
-  
+
   # LDFLAGS+=-s MAIN_MODULE is needed for dlopen() in client/server but it causes compile errors
   USE_RENDERER_DLOPEN=0
   USE_OPENAL_DLOPEN=0
@@ -1129,14 +1175,7 @@ ifeq ($(PLATFORM),emscripten)
   # For more flexibility, game data files can be loaded from a web server at runtime by listing
   # them in ioq3-config.json. This way they don't have to be present at build time and can be
   # changed later.
-  ifneq ($(wildcard $(BASEGAME)/*),)
-    CLIENT_LDFLAGS+=--preload-file $(BASEGAME)
-    SERVER_LDFLAGS+=--preload-file $(BASEGAME)
-    EMSCRIPTEN_PRELOAD_FILE=1
-    # CLIENT_EXTRA_FILES+=code/web/empty/ioq3-config.json
-  else
-    # CLIENT_EXTRA_FILES+=code/web/$(BASEGAME)/ioq3-config.json
-  endif
+
 
   OPTIMIZEVM = -O3
   OPTIMIZE = $(OPTIMIZEVM) -ffast-math

@@ -1,0 +1,640 @@
+<!doctype html>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Quake 3: Defrag Demo Viewer</title>
+<style>
+    html,
+    body {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        background: rgb(0, 0, 0);
+        font-family: "Antonio", sans-serif;
+        font-optical-sizing: auto;
+        font-weight: 700;
+        font-style: normal;
+        letter-spacing: -0.05ch;
+    }
+    canvas {
+        max-width: 100%;
+        max-height: 100%;
+        min-width: 100%;
+        min-height: 100%;
+        object-fit: contain;
+    }
+    #progress {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        margin: auto;
+        width: 80%;
+        height: 4em;
+        background: black;
+        border: 0.5em solid white;
+        padding: 0.5em;
+    }
+    #blocker {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        background: transparent;
+        color: white;
+        user-select: none;
+        -webkit-user-select: none;
+    }
+    #ui {
+        padding: 1em;
+        position: absolute;
+        left: 0;
+        bottom: 0;
+        background: transparent;
+        color: rgb(197, 0, 0);
+        transform-origin: bottom left;
+        transform: scale(4) scaleY(0.6);
+        user-select: none;
+        -webkit-user-select: none;
+    }
+
+    .button {
+        position: relative;
+        font-family: "Antonio", sans-serif;
+        font-optical-sizing: auto;
+        font-weight: 700;
+        font-style: normal;
+        padding: 0.2em;
+        font-weight: bold;
+        color: rgb(200, 0, 0);
+        background: transparent;
+        text-align: center;
+        margin-bottom: 0.5em;
+        cursor: pointer;
+    }
+
+    .button:hover {
+        color: rgb(255, 0, 0);
+        text-shadow: 0 0 5px rgba(255, 0, 0, 0.8);
+    }
+
+    #done {
+        width: 100%;
+        height: 100%;
+        transform: scaleX(0.05);
+        transform-origin: center left;
+        transition: transform 5s;
+        background: white;
+    }
+
+    #drop-area {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 300px;
+        height: 200px;
+        border: 2px dashed #ff0000;
+        border-radius: 5px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        color: #ff0000;
+        text-align: center;
+        padding: 20px;
+    }
+
+    #drop-area.highlight {
+        border-color: #ffffff;
+        background-color: rgba(255, 0, 0, 0.2);
+    }
+
+    #file-input {
+        display: none;
+    }
+
+    #controls {
+        position: absolute;
+        bottom: 10px;
+        left: 10px;
+        display: flex;
+        gap: 10px;
+    }
+
+    .control-button {
+        background-color: #111;
+        color: #ff0000;
+        border: 1px solid #ff0000;
+        padding: 5px 10px;
+        cursor: pointer;
+    }
+
+    .control-button:hover {
+        background-color: #222;
+    }
+
+    #map-info {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        color: #ff0000;
+        font-size: 14px;
+    }
+
+    #download-progress {
+        position: absolute;
+        top: 40px;
+        left: 10px;
+        color: #ff0000;
+        font-size: 14px;
+        display: none;
+    }
+</style>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link
+    href="https://fonts.googleapis.com/css2?family=Antonio:wght@100..700&display=swap"
+    rel="stylesheet"
+/>
+
+<body>
+    <div id="rotator">
+        <canvas id="canvas"></canvas>
+
+        <div id="blocker"></div>
+
+        <div id="ui">
+            <div id="map-info"></div>
+            <div id="download-progress"></div>
+        </div>
+
+        <div id="drop-area">
+            <p>Drop your Defrag demo file here</p>
+            <p>or</p>
+            <button class="button" id="select-file">SELECT DEMO FILE</button>
+            <input
+                type="file"
+                id="file-input"
+                accept=".dm_68,.dm_66,.dm_67,.dm_73"
+            />
+        </div>
+
+        <div id="controls" style="display: none">
+            <button class="control-button" id="restart">Restart</button>
+            <button class="control-button" id="toggle-freecam">
+                Toggle Freecam
+            </button>
+            <button class="control-button" id="toggle-hud">Toggle HUD</button>
+        </div>
+
+        <div id="progress"><div id="done"></div></div>
+    </div>
+</body>
+<script src="compression-streams-polyfill.0.1.7.js"></script>
+<script type="module">
+    let defragMapCache = new Map();
+    let currentDemo = null;
+    let module = null;
+    let buildPath = ".";
+    let mapDownloader = null;
+
+    // Override pointer lock
+    const originalRequestPointerLock = HTMLElement.prototype.requestPointerLock;
+    HTMLElement.prototype.originalRequestPointerLock =
+        originalRequestPointerLock;
+    HTMLElement.prototype.requestPointerLock = function (options) {
+        console.log("Intercepted requestPointerLock call");
+    };
+
+    // File upload handling
+    const dropArea = document.getElementById("drop-area");
+    const fileInput = document.getElementById("file-input");
+    const selectFileButton = document.getElementById("select-file");
+    const controls = document.getElementById("controls");
+    const mapInfo = document.getElementById("map-info");
+    const downloadProgress = document.getElementById("download-progress");
+    const restartButton = document.getElementById("restart");
+    const toggleFreecamButton = document.getElementById("toggle-freecam");
+    const toggleHudButton = document.getElementById("toggle-hud");
+    const progress = document.getElementById("progress");
+    const done = document.getElementById("done");
+
+    // Drag and drop handling
+    ["dragenter", "dragover", "dragleave", "drop"].forEach((eventName) => {
+        dropArea.addEventListener(eventName, preventDefaults, false);
+    });
+
+    function preventDefaults(e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+
+    ["dragenter", "dragover"].forEach((eventName) => {
+        dropArea.addEventListener(eventName, highlight, false);
+    });
+
+    ["dragleave", "drop"].forEach((eventName) => {
+        dropArea.addEventListener(eventName, unhighlight, false);
+    });
+
+    function highlight() {
+        dropArea.classList.add("highlight");
+    }
+
+    function unhighlight() {
+        dropArea.classList.remove("highlight");
+    }
+
+    dropArea.addEventListener("drop", handleDrop, false);
+    fileInput.addEventListener("change", handleFiles, false);
+    selectFileButton.addEventListener("click", () => fileInput.click(), false);
+
+    toggleHudButton.addEventListener("click", toggleHud);
+
+    async function handleDrop(e) {
+        const dt = e.dataTransfer;
+        const files = dt.files;
+        await handleFiles({ target: { files } });
+    }
+
+    async function handleFiles(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        currentDemo = await readFile(file);
+        const demoInfo = parseDemoInfo(currentDemo);
+
+        if (!demoInfo) {
+            alert("Invalid or unsupported demo file");
+            return;
+        }
+
+        mapInfo.textContent = `Map: ${demoInfo.mapName}`;
+
+        // Hide the drop area and show controls
+        dropArea.style.display = "none";
+        controls.style.display = "flex";
+
+        // First download the map
+        const mapData = await mapDownloader.downloadMap(demoInfo.mapName);
+
+        // Now we need to restart the module with the demo command
+        await initializeIOQuake3(
+            demoInfo.mapName,
+            mapData,
+            file.name,
+            currentDemo,
+        );
+        console.log("3333");
+    }
+
+    function readFile(file) {
+        return new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onload = (e) => resolve(new Uint8Array(e.target.result));
+            reader.readAsArrayBuffer(file);
+        });
+    }
+
+    // Now use this in your parseDemoInfo function
+    function parseDemoInfo(demoData) {
+        return {
+            mapName: "hgb-tutte-vs-frutty",
+            protocol: 68,
+        };
+    }
+
+    function toggleHud() {
+        if (module) {
+            module.ccall(
+                "Cmd_ExecuteString",
+                null,
+                ["string"],
+                ["toggle cg_draw2D"],
+            );
+        }
+    }
+
+    // Function to load file from server
+    function downloadDataFile(mod, url, destPath) {
+        return new Promise((resolve, reject) => {
+            console.log(`Loading file: ${url} -> ${destPath}`);
+
+            const xhr = new XMLHttpRequest();
+            xhr.open("GET", url, true);
+            xhr.responseType = "arraybuffer";
+
+            xhr.onload = function () {
+                if (xhr.status === 200) {
+                    try {
+                        const arrayBuffer = xhr.response;
+                        const uint8Array = new Uint8Array(arrayBuffer);
+
+                        // Ensure directory exists
+                        const dir = destPath.substring(
+                            0,
+                            destPath.lastIndexOf("/"),
+                        );
+                        mod.FS.mkdirTree(dir);
+
+                        // Write file
+                        mod.FS.writeFile(destPath, uint8Array);
+                        console.log(
+                            `File loaded successfully: ${destPath} (${uint8Array.length} bytes)`,
+                        );
+                        resolve();
+                    } catch (err) {
+                        console.error(`Error writing file ${destPath}:`, err);
+                        reject(err);
+                    }
+                } else {
+                    console.warn(`Failed to load ${url}: ${xhr.status}`);
+                    reject(new Error(`HTTP status ${xhr.status}`));
+                }
+            };
+
+            xhr.onerror = function () {
+                console.error(`Network error loading ${url}`);
+                reject(new Error("Network error"));
+            };
+
+            xhr.send();
+        });
+    }
+
+    async function initializeIOQuake3(mapName, mapData, demoName, demoBytes) {
+        let generatedArguments = `+set fs_game defrag +set developer 1 +set logfile 2 +set com_zoneMegs 32 +demo ${demoName}`;
+
+        // Import the ioquake3 module
+        const ioquake3 = await import(`./ioquake3_opengl2.wasm32.js`);
+
+        console.log("args", generatedArguments.trim().split(/\s+/));
+        // Create module configuration
+        const moduleConfig = {
+            canvas: canvas,
+            arguments: generatedArguments.trim().split(/\s+/),
+            locateFile: (file) => `./${file}`,
+            printErr: (msg) => {
+                if (msg === "--- Common Initialization Complete ---") {
+                    progress.style.display = "none";
+                }
+                console.error(msg);
+            },
+            noFSInit: false,
+            preRun: [
+                function (mod) {
+                    console.log("Setting up Quake 3 filesystem");
+                    // Helper function to safely create a directory
+                    function safelyCreateDir(path) {
+                        try {
+                            mod.FS.mkdir(path);
+                            console.log(`Created directory: ${path}`);
+                        } catch (err) {
+                            // EEXIST error means directory already exists, which is fine
+                            if (err.code === "EEXIST") {
+                                console.log(
+                                    `Directory already exists: ${path}`,
+                                );
+                            } else {
+                                console.error(
+                                    `Error creating directory ${path}:`,
+                                    err,
+                                );
+                                throw err; // Re-throw if it's a serious error
+                            }
+                        }
+                    }
+
+                    // Create directories for our content
+                    safelyCreateDir("/baseq3");
+                    safelyCreateDir("/defrag");
+
+                    console.log("Downloading files");
+
+                    // List of PK3 files to load
+                    const filesToLoad = [
+                        {
+                            url: "defrag/zz-defrag_fix_mapscripts_190.pk3",
+                            dest: "/defrag/zz-defrag_fix_mapscripts_190.pk3",
+                        },
+                        {
+                            url: "defrag/zz-defrag_fix_shaders_190.pk3",
+                            dest: "/defrag/zz-defrag_fix_shaders_190.pk3",
+                        },
+                        {
+                            url: "defrag/zz-defrag_media_190.pk3",
+                            dest: "/defrag/zz-defrag_media_190.pk3",
+                        },
+                        {
+                            url: "defrag/zz-defrag_media_191.pk3",
+                            dest: "/defrag/zz-defrag_media_191.pk3",
+                        },
+                        {
+                            url: "defrag/zz-defrag_vm_191.pk3",
+                            dest: "/defrag/zz-defrag_vm_191.pk3",
+                        },
+                        {
+                            url: "defrag/zzz-nade_flashing_green.pk3",
+                            dest: "/defrag/zzz-nade_flashing_green.pk3",
+                        },
+                        {
+                            url: "defrag/zzz-no_teleport_effect.pk3",
+                            dest: "/defrag/zzz-no_teleport_effect.pk3",
+                        },
+                        {
+                            url: "defrag/zzz-standard_fonts_big_resolution.pk3",
+                            dest: "/defrag/zzz-standard_fonts_big_resolution.pk3",
+                        },
+                        {
+                            url: "defrag/zzz-transparent_lagometer.pk3",
+                            dest: "/defrag/zzz-transparent_lagometer.pk3",
+                        },
+                        {
+                            url: "defrag/zzz-trigger-clip-clean-brush.pk3",
+                            dest: "/defrag/zzz-trigger-clip-clean-brush.pk3",
+                        },
+                        {
+                            url: "baseq3/q3key",
+                            dest: "/baseq3/q3key",
+                        },
+                        {
+                            url: "baseq3/default.cfg",
+                            dest: "/baseq3/default.cfg",
+                        },
+                        {
+                            url: "baseq3/pak0.pk3",
+                            dest: "/baseq3/pak0.pk3",
+                        },
+                        {
+                            url: "baseq3/pak1.pk3",
+                            dest: "/baseq3/pak1.pk3",
+                        },
+                        {
+                            url: "baseq3/pak2.pk3",
+                            dest: "/baseq3/pak2.pk3",
+                        },
+                        {
+                            url: "baseq3/pak3.pk3",
+                            dest: "/baseq3/pak3.pk3",
+                        },
+                        {
+                            url: "baseq3/pak4.pk3",
+                            dest: "/baseq3/pak4.pk3",
+                        },
+                        {
+                            url: "baseq3/pak5.pk3",
+                            dest: "/baseq3/pak5.pk3",
+                        },
+                        {
+                            url: "baseq3/pak6.pk3",
+                            dest: "/baseq3/pak6.pk3",
+                        },
+                        {
+                            url: "baseq3/pak7.pk3",
+                            dest: "/baseq3/pak7.pk3",
+                        },
+                        {
+                            url: "baseq3/pak8.pk3",
+                            dest: "/baseq3/pak8.pk3",
+                        },
+                        {
+                            url: "baseq3/q3config.cfg",
+                            dest: "/baseq3/q3config.cfg",
+                        },
+                        {
+                            url: "baseq3/zz-q3netpack.pk3",
+                            dest: "/baseq3/zz-q3netpack.pk3",
+                        },
+                        {
+                            url: "baseq3/zzz-safe-textures.pk3",
+                            dest: "/baseq3/zzz-safe-textures.pk3",
+                        },
+                    ];
+
+                    mod.addRunDependency("load-game-files");
+
+                    // Create a counter to track loading progress
+                    let loadedCount = 0;
+                    const totalFiles = filesToLoad.length;
+
+                    // Load each file, but don't wait for all files to finish
+                    // This allows the game to run with partial content if some files fail to load
+                    const promiseArr = filesToLoad.map((file) =>
+                        downloadDataFile(mod, file.url, file.dest)
+                            .then(() => {
+                                loadedCount++;
+                                const percentComplete = Math.round(
+                                    (loadedCount / totalFiles) * 100,
+                                );
+                                if (progress) {
+                                    progress.value = percentComplete;
+                                    progress.textContent = `${percentComplete}%`;
+                                }
+                            })
+                            .catch((err) => {
+                                console.warn(
+                                    `Warning: Could not load ${file.url}: ${err}`,
+                                );
+                                // Continue despite errors in individual files
+                                loadedCount++;
+                            }),
+                    );
+
+                    // After all files have been processed (or failed)
+                    Promise.all(promiseArr).then(() => {
+                        console.log("Game file loading complete");
+                        mod.removeRunDependency("load-game-files");
+                    });
+
+                    // Write the demo
+                    console.log(`Writing demo to filesystem: ${demoName}`);
+                    mod.FS.mkdirTree("/defrag/demos");
+                    mod.FS.writeFile(`/defrag/demos/${demoName}`, demoBytes);
+
+                    console.log(`Downloading map: ${mapName}`);
+                    mod.FS.writeFile(`/defrag/${mapName}.pk3`, mapData);
+
+                    console.log("Filesystem setup complete in preRun");
+                },
+            ],
+        };
+
+        console.log("Initializing ioquake3 module...");
+        module = await ioquake3.default(moduleConfig);
+        console.log("ioquake3 module initialized");
+
+        return module;
+    }
+
+    // Map downloader functionality
+    class MapDownloader {
+        constructor() {
+            this.repositories = ["http://localhost:8000/maps/"];
+        }
+
+        async downloadMap(mapName) {
+            let lastError = null;
+
+            for (const repo of this.repositories) {
+                try {
+                    const url = `${repo}${mapName}.pk3`;
+                    downloadProgress.textContent = `Trying: ${url}`;
+                    console.log(`Trying: ${url}`);
+
+                    const response = await fetch(url);
+                    console.log(response);
+                    if (!response.ok) {
+                        throw new Error(
+                            `Failed to download from ${repo}: ${response.status}`,
+                        );
+                    }
+                    console.log("yell");
+
+                    const contentLength =
+                        +response.headers.get("Content-Length") || 1000000;
+                    const reader = response.body.getReader();
+                    const chunks = [];
+                    let receivedLength = 0;
+
+                    while (true) {
+                        const { done, value } = await reader.read();
+
+                        if (done) {
+                            break;
+                        }
+
+                        chunks.push(value);
+                        receivedLength += value.length;
+
+                        // Update progress
+                        const percentComplete = contentLength
+                            ? receivedLength / contentLength
+                            : 0;
+                        document.getElementById("done").style.transform =
+                            `scaleX(${0.1 + percentComplete * 0.9})`;
+                        downloadProgress.textContent = `Downloading: ${Math.round(percentComplete * 100)}%`;
+                    }
+
+                    const mapData = new Uint8Array(receivedLength);
+                    let position = 0;
+                    for (const chunk of chunks) {
+                        mapData.set(chunk, position);
+                        position += chunk.length;
+                    }
+
+                    return mapData;
+                } catch (e) {
+                    console.warn(`Failed to download from ${repo}:`, e);
+                    lastError = e;
+                }
+            }
+
+            throw lastError || new Error(`Failed to download map: ${mapName}`);
+        }
+    }
+
+    // Initialize the map downloader
+    mapDownloader = new MapDownloader();
+</script>
