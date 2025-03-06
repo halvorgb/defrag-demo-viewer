@@ -627,6 +627,7 @@ qboolean NET_GetPacket(netadr_t *net_from, msg_t *net_message, fd_set *fdr)
 		}
 	}
 
+
 	return qfalse;
 }
 
@@ -1224,6 +1225,7 @@ void NET_OpenSocks( int port ) {
 	usingSocks = qtrue;
 }
 
+
 /*
 =====================
 NET_AddLocalAddress
@@ -1549,6 +1551,7 @@ void NET_Config( qboolean enableNetworking ) {
 			closesocket( socks_socket );
 			socks_socket = INVALID_SOCKET;
 		}
+
 	}
 
 	if( start )
@@ -1580,7 +1583,6 @@ void NET_Init( void ) {
 	winsockInitialized = qtrue;
 	Com_Printf( "Winsock Initialized\n" );
 #endif
-
 
 	NET_Config( qtrue );
 
@@ -1656,7 +1658,6 @@ void NET_Sleep(int msec)
 	fd_set fdr;
 	int retval;
 	SOCKET highestfd = INVALID_SOCKET;
-
 
 	if(msec < 0)
 		msec = 0;

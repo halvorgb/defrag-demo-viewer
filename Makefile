@@ -1139,7 +1139,7 @@ ifeq ($(PLATFORM),emscripten)
   USE_HUMBLENET=0
   BUILD_SERVER=0
 
-  CLIENT_EXTRA_FILES+=code/web/index.html code/web/GamepadEmulator.js code/web/compression-streams-polyfill.0.1.7.js
+  CLIENT_EXTRA_FILES+=code/web/GamepadEmulator.js code/web/compression-streams-polyfill.0.1.7.js
 
   ifeq ($(BUILD_SERVER),1)
     CLIENT_EXTRA_FILES+=code/web/server.html

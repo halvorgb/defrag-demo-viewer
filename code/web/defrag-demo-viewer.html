@@ -2,6 +2,23 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Quake 3: Defrag Demo Viewer</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+    // Customize Tailwind with your preferred settings
+    tailwind.config = {
+        theme: {
+            extend: {
+                colors: {
+                    quakered: "#ff0000",
+                    quakedarkred: "#c50000",
+                },
+            },
+            fontFamily: {
+                antonio: ['"Antonio"', "sans-serif"],
+            },
+        },
+    };
+</script>
 <style>
     html,
     body {
@@ -22,7 +39,7 @@
         min-height: 100%;
         object-fit: contain;
     }
-    #progress {
+    #progress-container {
         position: absolute;
         top: 0;
         bottom: 0;
@@ -34,6 +51,7 @@
         background: black;
         border: 0.5em solid white;
         padding: 0.5em;
+        display: none; /* Hide initially */
     }
     #blocker {
         position: absolute;
@@ -59,96 +77,16 @@
         -webkit-user-select: none;
     }
 
-    .button {
-        position: relative;
-        font-family: "Antonio", sans-serif;
-        font-optical-sizing: auto;
-        font-weight: 700;
-        font-style: normal;
-        padding: 0.2em;
-        font-weight: bold;
-        color: rgb(200, 0, 0);
-        background: transparent;
-        text-align: center;
-        margin-bottom: 0.5em;
-        cursor: pointer;
-    }
-
-    .button:hover {
-        color: rgb(255, 0, 0);
-        text-shadow: 0 0 5px rgba(255, 0, 0, 0.8);
-    }
-
-    #done {
+    #progress-bar {
         width: 100%;
         height: 100%;
         transform: scaleX(0.05);
         transform-origin: center left;
-        transition: transform 5s;
+        transition: transform 0.3s;
         background: white;
     }
 
-    #drop-area {
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        width: 300px;
-        height: 200px;
-        border: 2px dashed #ff0000;
-        border-radius: 5px;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        color: #ff0000;
-        text-align: center;
-        padding: 20px;
-    }
-
-    #drop-area.highlight {
-        border-color: #ffffff;
-        background-color: rgba(255, 0, 0, 0.2);
-    }
-
     #file-input {
-        display: none;
-    }
-
-    #controls {
-        position: absolute;
-        bottom: 10px;
-        left: 10px;
-        display: flex;
-        gap: 10px;
-    }
-
-    .control-button {
-        background-color: #111;
-        color: #ff0000;
-        border: 1px solid #ff0000;
-        padding: 5px 10px;
-        cursor: pointer;
-    }
-
-    .control-button:hover {
-        background-color: #222;
-    }
-
-    #map-info {
-        position: absolute;
-        top: 10px;
-        left: 10px;
-        color: #ff0000;
-        font-size: 14px;
-    }
-
-    #download-progress {
-        position: absolute;
-        top: 40px;
-        left: 10px;
-        color: #ff0000;
-        font-size: 14px;
         display: none;
     }
 </style>
@@ -159,37 +97,47 @@
     rel="stylesheet"
 />
 
-<body>
+<body class="bg-black">
     <div id="rotator">
         <canvas id="canvas"></canvas>
 
         <div id="blocker"></div>
 
         <div id="ui">
-            <div id="map-info"></div>
-            <div id="download-progress"></div>
+            <div
+                id="map-info"
+                class="text-quakered text-sm absolute top-3 left-3"
+            ></div>
+            <div
+                id="download-progress"
+                class="text-quakered text-sm absolute top-10 left-3"
+            ></div>
         </div>
 
-        <div id="drop-area">
+        <!-- Use Tailwind classes for the drop area -->
+        <div
+            id="drop-area"
+            class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-80 h-52 border-2 border-dashed border-quakered rounded flex flex-col items-center justify-center text-quakered text-center p-5 z-10"
+        >
             <p>Drop your Defrag demo file here</p>
             <p>or</p>
-            <button class="button" id="select-file">SELECT DEMO FILE</button>
+            <button
+                id="select-file"
+                class="font-antonio font-bold py-1 px-2 text-quakered bg-transparent hover:text-white hover:bg-quakered/20 transition-colors duration-200"
+            >
+                SELECT DEMO FILE
+            </button>
             <input
                 type="file"
                 id="file-input"
                 accept=".dm_68,.dm_66,.dm_67,.dm_73"
+                class="hidden"
             />
         </div>
 
-        <div id="controls" style="display: none">
-            <button class="control-button" id="restart">Restart</button>
-            <button class="control-button" id="toggle-freecam">
-                Toggle Freecam
-            </button>
-            <button class="control-button" id="toggle-hud">Toggle HUD</button>
+        <div id="progress-container">
+            <div id="progress-bar"></div>
         </div>
-
-        <div id="progress"><div id="done"></div></div>
     </div>
 </body>
 <script src="compression-streams-polyfill.0.1.7.js"></script>
@@ -212,14 +160,10 @@
     const dropArea = document.getElementById("drop-area");
     const fileInput = document.getElementById("file-input");
     const selectFileButton = document.getElementById("select-file");
-    const controls = document.getElementById("controls");
     const mapInfo = document.getElementById("map-info");
     const downloadProgress = document.getElementById("download-progress");
-    const restartButton = document.getElementById("restart");
-    const toggleFreecamButton = document.getElementById("toggle-freecam");
-    const toggleHudButton = document.getElementById("toggle-hud");
-    const progress = document.getElementById("progress");
-    const done = document.getElementById("done");
+    const progressContainer = document.getElementById("progress-container");
+    const progressBar = document.getElementById("progress-bar");
 
     // Drag and drop handling
     ["dragenter", "dragover", "dragleave", "drop"].forEach((eventName) => {
@@ -240,18 +184,37 @@
     });
 
     function highlight() {
-        dropArea.classList.add("highlight");
+        dropArea.classList.add("border-white", "bg-quakered/20");
+        dropArea.classList.remove("border-quakered");
     }
 
     function unhighlight() {
-        dropArea.classList.remove("highlight");
+        dropArea.classList.remove("border-white", "bg-quakered/20");
+        dropArea.classList.add("border-quakered");
+    }
+
+    // Set up progress display functions
+    function showProgress(message = "") {
+        progressContainer.style.display = "block";
+        progressBar.style.transform = "scaleX(0.05)";
+        if (message) {
+            downloadProgress.textContent = message;
+            downloadProgress.style.display = "block";
+        }
+    }
+
+    function updateProgress(percent) {
+        progressBar.style.transform = `scaleX(${0.05 + percent * 0.95})`;
+    }
+
+    function hideProgress() {
+        progressContainer.style.display = "none";
+        downloadProgress.style.display = "none";
     }
 
     dropArea.addEventListener("drop", handleDrop, false);
     fileInput.addEventListener("change", handleFiles, false);
     selectFileButton.addEventListener("click", () => fileInput.click(), false);
-
-    toggleHudButton.addEventListener("click", toggleHud);
 
     async function handleDrop(e) {
         const dt = e.dataTransfer;
@@ -263,31 +226,44 @@
         const file = e.target.files[0];
         if (!file) return;
 
+        // Show loading indicator
+        showProgress("Reading demo file...");
+
         currentDemo = await readFile(file);
         const demoInfo = parseDemoInfo(currentDemo);
 
         if (!demoInfo) {
             alert("Invalid or unsupported demo file");
+            hideProgress();
             return;
         }
 
         mapInfo.textContent = `Map: ${demoInfo.mapName}`;
 
-        // Hide the drop area and show controls
+        // Hide the drop area
         dropArea.style.display = "none";
-        controls.style.display = "flex";
 
         // First download the map
-        const mapData = await mapDownloader.downloadMap(demoInfo.mapName);
+        showProgress(`Downloading map: ${demoInfo.mapName}`);
 
-        // Now we need to restart the module with the demo command
-        await initializeIOQuake3(
-            demoInfo.mapName,
-            mapData,
-            file.name,
-            currentDemo,
-        );
-        console.log("3333");
+        try {
+            const mapData = await mapDownloader.downloadMap(demoInfo.mapName);
+
+            showProgress("Initializing Quake 3 engine...");
+            await initializeIOQuake3(
+                demoInfo.mapName,
+                mapData,
+                file.name,
+                currentDemo,
+            );
+        } catch (error) {
+            console.error("Error loading demo:", error);
+            alert(`Failed to load: ${error.message}`);
+            hideProgress();
+
+            // Show drop area again if there was an error
+            dropArea.style.display = "flex";
+        }
     }
 
     function readFile(file) {
@@ -304,17 +280,6 @@
             mapName: "hgb-tutte-vs-frutty",
             protocol: 68,
         };
-    }
-
-    function toggleHud() {
-        if (module) {
-            module.ccall(
-                "Cmd_ExecuteString",
-                null,
-                ["string"],
-                ["toggle cg_draw2D"],
-            );
-        }
     }
 
     // Function to load file from server
@@ -378,9 +343,9 @@
             locateFile: (file) => `./${file}`,
             printErr: (msg) => {
                 if (msg === "--- Common Initialization Complete ---") {
-                    progress.style.display = "none";
+                    hideProgress();
                 }
-                console.error(msg);
+                console.log(msg);
             },
             noFSInit: false,
             preRun: [
@@ -412,6 +377,7 @@
                     safelyCreateDir("/defrag");
 
                     console.log("Downloading files");
+                    showProgress("Loading game files...");
 
                     // List of PK3 files to load
                     const filesToLoad = [
@@ -525,13 +491,10 @@
                         downloadDataFile(mod, file.url, file.dest)
                             .then(() => {
                                 loadedCount++;
-                                const percentComplete = Math.round(
-                                    (loadedCount / totalFiles) * 100,
-                                );
-                                if (progress) {
-                                    progress.value = percentComplete;
-                                    progress.textContent = `${percentComplete}%`;
-                                }
+                                const percentComplete =
+                                    loadedCount / totalFiles;
+                                updateProgress(percentComplete * 0.8); // Use 80% of the progress bar for files
+                                downloadProgress.textContent = `Loading files: ${Math.round(percentComplete * 100)}%`;
                             })
                             .catch((err) => {
                                 console.warn(
@@ -546,6 +509,8 @@
                     Promise.all(promiseArr).then(() => {
                         console.log("Game file loading complete");
                         mod.removeRunDependency("load-game-files");
+                        updateProgress(0.9); // 90% complete after files are loaded
+                        downloadProgress.textContent = "Starting engine...";
                     });
 
                     // Write the demo
@@ -553,7 +518,7 @@
                     mod.FS.mkdirTree("/defrag/demos");
                     mod.FS.writeFile(`/defrag/demos/${demoName}`, demoBytes);
 
-                    console.log(`Downloading map: ${mapName}`);
+                    console.log(`Writing map data: ${mapName}`);
                     mod.FS.writeFile(`/defrag/${mapName}.pk3`, mapData);
 
                     console.log("Filesystem setup complete in preRun");
@@ -590,7 +555,7 @@
                             `Failed to download from ${repo}: ${response.status}`,
                         );
                     }
-                    console.log("yell");
+                    console.log("Map download successful");
 
                     const contentLength =
                         +response.headers.get("Content-Length") || 1000000;
@@ -612,9 +577,8 @@
                         const percentComplete = contentLength
                             ? receivedLength / contentLength
                             : 0;
-                        document.getElementById("done").style.transform =
-                            `scaleX(${0.1 + percentComplete * 0.9})`;
-                        downloadProgress.textContent = `Downloading: ${Math.round(percentComplete * 100)}%`;
+                        updateProgress(percentComplete * 0.3); // Use 30% of progress bar for map download
+                        downloadProgress.textContent = `Downloading map: ${Math.round(percentComplete * 100)}%`;
                     }
 
                     const mapData = new Uint8Array(receivedLength);
@@ -637,4 +601,7 @@
 
     // Initialize the map downloader
     mapDownloader = new MapDownloader();
+
+    // Hide progress initially
+    hideProgress();
 </script>
