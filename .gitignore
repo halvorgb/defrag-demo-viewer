@@ -48,3 +48,6 @@ profile
 *.sdf
 *.opensdf
 *.suo
+defrag/
+maps/
+
