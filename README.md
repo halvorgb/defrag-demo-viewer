@@ -1,7 +1,10 @@
 Defrag Demo viewer
 ================
 
-To run locally, create baseq3/ defrag/ and maps/ folders in the root, run a python server in the root:
+Buggy demonstration: https://www.youtube.com/watch?v=D5yoBW6T0XI
+
+# Running 
+To run locally, create `baseq3/` `defrag/` and `maps/` folders in the root, run a python server in the root:
 ```
 ~/gaem/ioq3 defrag-demo-viewer*
 ❯ ls baseq3
