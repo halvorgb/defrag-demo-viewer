@@ -1091,6 +1091,8 @@ _defragdemo:
 	# Copy the demo viewer HTML file to the build directory
 	@cp ./code/web/defrag-demo-viewer.html $(B)/defrag-demo-viewer.html || echo "Failed to copy HTML file"
 
+	@cp ./code/web/demo-parser-browser.js $(B)/demo-parser-browser.js || echo "Failed to copy demo parser browser file"
+
 	# Copy necessary web files
 	@cp ./code/web/GamepadEmulator.js $(B)/GamepadEmulator.js || echo "Failed to copy GamepadEmulator.js"
 	@cp ./code/web/compression-streams-polyfill.0.1.7.js $(B)/compression-streams-polyfill.0.1.7.js || echo "Failed to copy compression-streams-polyfill.js"

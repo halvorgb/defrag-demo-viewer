@@ -17,6 +17,17 @@
         min-width: 100%;
         min-height: 100%;
         object-fit: contain;
+
+        image-rendering: optimizeSpeed; /* Older versions of FF */
+        image-rendering: -moz-crisp-edges; /* FF 6.0+ */
+        image-rendering: -webkit-optimize-contrast; /* Safari */
+        image-rendering: -o-crisp-edges; /* Opera 12.0+ */
+        image-rendering: pixelated; /* Chrome */
+        -ms-interpolation-mode: nearest-neighbor; /* IE */
+
+        /* Prevent tearing/interlacing */
+        backface-visibility: hidden;
+        transform: translateZ(0);
     }
 </style>
 
@@ -78,8 +89,10 @@
     </div>
 </body>
 <script src="compression-streams-polyfill.0.1.7.js"></script>
+<script type="module" src="demo-parser-browser.js"></script>
 <script type="module">
-    let defragMapCache = new Map();
+    import { DemoParser } from "./demo-parser-browser.js";
+
     let currentDemo = null;
     let module = null;
     let buildPath = ".";
@@ -93,7 +106,6 @@
         console.log("Intercepted requestPointerLock call");
     };
 
-    // File upload handling
     const dropArea = document.getElementById("drop-area");
     const fileInput = document.getElementById("file-input");
     const selectFileButton = document.getElementById("select-file");
@@ -167,7 +179,6 @@
         const file = e.target.files[0];
         if (!file) return;
 
-        // Show loading indicator
         showProgress("Reading demo file...");
 
         currentDemo = await readFile(file);
@@ -216,10 +227,27 @@
     }
 
     function parseDemoInfo(demoData) {
-        return {
-            mapName: "hgb-tutte-vs-frutty",
-            protocol: 68,
-        };
+        try {
+            const parser = new DemoParser();
+            const demoInfo = parser.parseDemo(demoData);
+
+            if (!demoInfo) {
+                console.error("Failed to parse demo info");
+                return null;
+            }
+
+            console.log("Parsed demo info:", demoInfo);
+
+            // Return the map name from the game info
+            console.log("client", demoInfo.client);
+            console.log("client.mapname", demoInfo.client.mapname);
+            return {
+                mapName: demoInfo.client.mapname,
+            };
+        } catch (error) {
+            console.error("Error parsing demo file:", error);
+            return null;
+        }
     }
 
     function downloadDataFile(mod, url, destPath) {
@@ -390,7 +418,7 @@
         canvas.width = viewportWidth;
         canvas.height = viewportHeight;
 
-        let generatedArguments = `set fs_game defrag +set developer 1 +set r_customwidth ${viewportWidth} +set r_customheight ${viewportHeight} +set r_mode -1 +set r_fullscreen 0 +demo ${demoName}`;
+        let generatedArguments = `+set r_finish 1 +set fs_game defrag +set developer 1 +set r_customwidth ${viewportWidth} +set r_customheight ${viewportHeight} +set r_mode -1 +set r_fullscreen 0 +demo ${demoName}`;
 
         const ioquake3 = await import(`./ioquake3_opengl2.wasm32.js`);
 
@@ -468,13 +496,152 @@
         return module;
     }
 
-    // Map downloader functionality
+    class MapCache {
+        constructor() {
+            this.dbName = "quake3-maps-cache";
+            this.storeName = "maps";
+            this.db = null;
+            this.initPromise = this.initDatabase();
+        }
+
+        async initDatabase() {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open(this.dbName, 1);
+
+                request.onerror = (event) => {
+                    console.error("IndexedDB error:", event.target.error);
+                    reject(new Error("Failed to open map cache database"));
+                };
+
+                request.onsuccess = (event) => {
+                    this.db = event.target.result;
+                    resolve();
+                };
+
+                request.onupgradeneeded = (event) => {
+                    const db = event.target.result;
+                    if (!db.objectStoreNames.contains(this.storeName)) {
+                        db.createObjectStore(this.storeName, {
+                            keyPath: "mapName",
+                        });
+                    }
+                };
+            });
+        }
+
+        async getMap(mapName) {
+            await this.initPromise;
+
+            return new Promise((resolve, reject) => {
+                const transaction = this.db.transaction(
+                    [this.storeName],
+                    "readonly",
+                );
+                const store = transaction.objectStore(this.storeName);
+                const request = store.get(mapName);
+
+                request.onsuccess = (event) => {
+                    const result = event.target.result;
+                    if (result) {
+                        console.log(`Map ${mapName} loaded from cache`);
+                        resolve(result.data);
+                    } else {
+                        resolve(null); // Map not in cache
+                    }
+                };
+
+                request.onerror = (event) => {
+                    console.error(
+                        "Error reading from cache:",
+                        event.target.error,
+                    );
+                    reject(event.target.error);
+                };
+            });
+        }
+
+        async saveMap(mapName, mapData) {
+            await this.initPromise;
+
+            return new Promise((resolve, reject) => {
+                const transaction = this.db.transaction(
+                    [this.storeName],
+                    "readwrite",
+                );
+                const store = transaction.objectStore(this.storeName);
+
+                // Store map with metadata
+                const record = {
+                    mapName: mapName,
+                    data: mapData,
+                    timestamp: Date.now(),
+                };
+
+                const request = store.put(record);
+
+                request.onsuccess = () => {
+                    console.log(
+                        `Map ${mapName} saved to cache (${mapData.byteLength} bytes)`,
+                    );
+                    resolve();
+                };
+
+                request.onerror = (event) => {
+                    console.error(
+                        "Error writing to cache:",
+                        event.target.error,
+                    );
+                    reject(event.target.error);
+                };
+            });
+        }
+
+        async clearCache() {
+            await this.initPromise;
+
+            return new Promise((resolve, reject) => {
+                const transaction = this.db.transaction(
+                    [this.storeName],
+                    "readwrite",
+                );
+                const store = transaction.objectStore(this.storeName);
+                const request = store.clear();
+
+                request.onsuccess = () => {
+                    console.log("Map cache cleared");
+                    resolve();
+                };
+
+                request.onerror = (event) => {
+                    console.error("Error clearing cache:", event.target.error);
+                    reject(event.target.error);
+                };
+            });
+        }
+    }
+
     class MapDownloader {
         constructor() {
             this.repositories = ["http://localhost:8000/maps/"];
+            this.cache = new MapCache();
         }
 
         async downloadMap(mapName) {
+            // First try to get the map from cache
+            try {
+                const cachedMap = await this.cache.getMap(mapName);
+                if (cachedMap) {
+                    downloadProgress.textContent = `Loaded map ${mapName} from cache`;
+                    return cachedMap;
+                }
+            } catch (cacheError) {
+                console.warn(
+                    "Cache access failed, will download map:",
+                    cacheError,
+                );
+            }
+
+            // If not in cache, download from repositories
             let lastError = null;
 
             for (const repo of this.repositories) {
@@ -484,7 +651,6 @@
                     console.log(`Trying: ${url}`);
 
                     const response = await fetch(url);
-                    console.log(response);
                     if (!response.ok) {
                         throw new Error(
                             `Failed to download from ${repo}: ${response.status}`,
@@ -508,7 +674,6 @@
                         chunks.push(value);
                         receivedLength += value.length;
 
-                        // Update progress
                         const percentComplete = contentLength
                             ? receivedLength / contentLength
                             : 0;
@@ -523,6 +688,13 @@
                         position += chunk.length;
                     }
 
+                    // Store the downloaded map in cache
+                    try {
+                        await this.cache.saveMap(mapName, mapData);
+                    } catch (saveCacheError) {
+                        console.warn("Failed to cache map:", saveCacheError);
+                    }
+
                     return mapData;
                 } catch (e) {
                     console.warn(`Failed to download from ${repo}:`, e);
@@ -534,7 +706,6 @@
         }
     }
 
-    // Initialize the map downloader
     mapDownloader = new MapDownloader();
 
     // Hide progress initially
